@@ -2400,6 +2400,24 @@
 #define TARGET_STALL_PROTECTION_INTERVAL 9000
 #endif
 
+
+
+#ifdef RVS_V2_F051
+
+#define FILE_NAME "RVS_V2_F051"
+#define FIRMWARE_NAME "RVS V2      "
+#define DEAD_TIME 30
+#define HARDWARE_GROUP_F0_B
+#define TARGET_VOLTAGE_DIVIDER 110
+#define VOLTAGE_ADC_PIN LL_GPIO_PIN_3
+#define VOLTAGE_ADC_CHANNEL LL_ADC_CHANNEL_3
+#define USE_SERIAL_TELEMETRY // no pad
+
+#endif
+
+
+
+
 /*******************************   G071 Targets
  * *********************************/
 

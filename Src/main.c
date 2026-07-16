@@ -233,6 +233,7 @@ an settings option)
 #include <stdint.h>
 #include <string.h>
 #include <assert.h>
+#include <stdio.h>
 
 #ifndef NXP
 #ifdef USE_LED_STRIP
@@ -255,14 +256,14 @@ void zcfoundroutine(void);
 // firmware build options !! fixed speed and duty cycle modes are not to be used
 // with sinusoidal startup !!
 
-//#define FIXED_DUTY_MODE  // bypasses signal input and arming, uses a set duty
+// #define FIXED_DUTY_MODE  // bypasses signal input and arming, uses a set duty
 // cycle. For pumps, slot cars etc 
-//#define FIXED_DUTY_MODE_POWER 100     //
+// #define FIXED_DUTY_MODE_POWER 100     //
 // 0-100 percent not used in fixed speed mode
 
 // #define FIXED_SPEED_MODE  // bypasses input signal and runs at a fixed rpm
 // using the speed control loop PID 
-//#define FIXED_SPEED_MODE_RPM  1000  //
+// #define FIXED_SPEED_MODE_RPM  1000  //
 // intended final rpm , ensure pole pair numbers are entered correctly in config
 // tool.
 
@@ -572,6 +573,43 @@ uint8_t ubAnalogWatchdogStatus = RESET;
 #if defined(NEED_INPUT_READY) || defined(NXP)
 volatile char input_ready = 0;
 #endif
+
+
+void debugPrintPB6(const char *s)
+{
+    // Enable GPIOB and USART1 clocks
+    RCC->AHBENR  |= RCC_AHBENR_GPIOBEN;
+    RCC->APB2ENR |= RCC_APB2ENR_USART1EN;
+
+    // Reset USART1 to clear any state left by the bootloader
+    RCC->APB2RSTR |= RCC_APB2RSTR_USART1RST;
+    RCC->APB2RSTR &= ~RCC_APB2RSTR_USART1RST;
+
+    // PB6: AF mode, AF0 (USART1_TX on F051), push-pull, no pull
+    GPIOB->MODER   = (GPIOB->MODER   & ~(3u << (6u * 2u))) | (2u << (6u * 2u));
+    GPIOB->OTYPER  &= ~(1u << 6u);
+    GPIOB->OSPEEDR |=  (3u << (6u * 2u));
+    GPIOB->PUPDR   &= ~(3u << (6u * 2u));
+    GPIOB->AFR[0]  &= ~(0xFu << (6u * 4u)); // AF0
+
+    // 115200 baud at 48MHz: BRR = 48000000 / 115200 = 417
+    USART1->BRR = 417;
+    USART1->CR1 = USART_CR1_UE | USART_CR1_TE;
+
+    while (*s) {
+        while (!(USART1->ISR & USART_ISR_TXE)) {}
+        USART1->TDR = (uint8_t)*s++;
+    }
+    while (!(USART1->ISR & USART_ISR_TC)) {}
+}
+
+void debugPrintPB6Int(int value)
+{
+    char buffer[12];
+    snprintf(buffer, sizeof(buffer), "%d", value);
+    debugPrintPB6(buffer);
+}
+
 
 int32_t doPidCalculations(struct fastPID* pidnow, int actual, int target)
 {
@@ -1749,6 +1787,26 @@ static void checkDeviceInfo(void)
 int main(void)
 {
 
+// #if defined(MCU_F051)
+//     RCC->AHBENR |= RCC_AHBENR_GPIOBEN;                  // enable GPIOB clock
+//     GPIOB->MODER = (GPIOB->MODER & ~(3U << (6U * 2U))) | (1U << (6U * 2U)); // PB6 output
+//     GPIOB->OTYPER &= ~(1U << 6U);                       // push-pull
+
+//     // Visible signature: pulse PB6 several times
+//     for (volatile uint32_t i = 0; i < 200000; i++) {
+//         if ((i % 20000U) == 0U) {
+//             GPIOB->ODR ^= (1U << 6U);
+//         }
+//     }
+
+//     GPIOB->BSRR = (1U << 6U); // final high state
+
+//     while (1) { }             // temporary trap: proves app entry
+// #endif
+
+    debugPrintPB6("Starting up...\n");
+
+
 #ifdef NXP
     initCorePeripherals();
     checkDeviceInfo();
@@ -1763,12 +1821,16 @@ int main(void)
     loadEEpromSettings();
 #endif
 
+    // debugPrintPB6("Finish initialization...\n");
+
     if (VERSION_MAJOR != eepromBuffer.version.major || VERSION_MINOR != eepromBuffer.version.minor || EEPROM_VERSION > eepromBuffer.eeprom_version) {
         eepromBuffer.version.major = VERSION_MAJOR;
         eepromBuffer.version.minor = VERSION_MINOR;
         eepromBuffer.eeprom_version = EEPROM_VERSION;
         saveEEpromSettings();
     }
+
+    // debugPrintPB6("Get here...\n");
     
     if (eepromBuffer.dir_reversed == 1) {
         forward = 0;
@@ -1793,6 +1855,8 @@ int main(void)
         stall_protect_minimum_duty = stall_protect_minimum_duty + 50;
         min_startup_duty = min_startup_duty + 50;
     }
+
+    // debugPrintPB6("Get here...\n");
 
 #ifdef MCU_F031
     GPIOF->BSRR = LL_GPIO_PIN_6; // uncomment to take bridge out of standby mode
@@ -1892,7 +1956,15 @@ int main(void)
   startup_max_duty_cycle = startup_max_duty_cycle + 400;
 #endif
 
+    // debugPrintPB6("Before while...\n");
+
     while (1) {
+
+        // debugPrintPB6("while step...\n");
+        // debugPrintPB6("adjusted duty cycle:\n");
+        // debugPrintPB6Int(adjusted_duty_cycle);
+        // debugPrintPB6("\n");
+
 e_com_time = ((commutation_intervals[0] + commutation_intervals[1] + commutation_intervals[2] + commutation_intervals[3] + commutation_intervals[4] + commutation_intervals[5]) + 4) >> 1; // COMMUTATION INTERVAL IS 0.5US INCREMENTS 
 
 #if defined(FIXED_DUTY_MODE) || defined(FIXED_SPEED_MODE)
@@ -2120,9 +2192,16 @@ if(zero_crosses < 5){
             //Actual current is in 10mA, so 1 = 10mA
             actual_current = (((smoothed_raw_current * 3300 / 65535) - CURRENT_OFFSET) * 100) / (MILLIVOLT_PER_AMP);
 #else
+            // Need to recompute this
             battery_voltage = ((7 * battery_voltage) + ((ADC_raw_volts * 3300 / 4095 * VOLTAGE_DIVIDER) / 100)) >> 3;
+            // debugPrintPB6("actual_voltage:\n");
+            // debugPrintPB6Int(battery_voltage);
             smoothed_raw_current = getSmoothedCurrent();
+            // Units are in 10mA, so 1 = 10mA, 100 = 1A, 200 = 2A, etc.
             actual_current = ((smoothed_raw_current * 3300 / 41) - (CURRENT_OFFSET * 100)) / (MILLIVOLT_PER_AMP);
+            // debugPrintPB6("actual_current:\n");
+            // debugPrintPB6Int(actual_current);
+
 #endif
             if (actual_current < 0) {
                 actual_current = 0;

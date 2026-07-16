@@ -1,6 +1,7 @@
 obj/
 downloads/
-tools/
+tools/*
+!tools/scripts
 .vscode
 Keil_Projects/*.uvgui.*
 Keil_Projects/*.uvguix.*

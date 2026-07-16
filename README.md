@@ -101,3 +101,18 @@ Voodoobrew
 
 (and many more)
 
+
+
+```bash
+make SISKIN_11A_F051
+
+# Flash
+make clean && make SISKIN_11A_F051 && bash tools/scripts/flash.sh
+
+# or
+
+make RVS_V2_F051
+
+# Flash
+make clean && make RVS_V2_F051 && bash tools/scripts/flash.sh
+```
